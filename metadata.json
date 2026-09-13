@@ -1,0 +1,6 @@
+{
+  "name": "CDRRMD Emergency Operations Center",
+  "description": "Disaster Management System for the CDRRMD Emergency Operations Center.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

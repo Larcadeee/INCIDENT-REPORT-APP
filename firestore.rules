@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for Role-Based Access Control
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserRole() {
+      // Allow custom claims if present, otherwise lookup the user profile doc
+      return request.auth.token.role != null 
+        ? request.auth.token.role 
+        : get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'ADMIN';
+    }
+
+    function isSupervisor() {
+      return isAuthenticated() && (getUserRole() == 'SUPERVISOR' || getUserRole() == 'ADMIN');
+    }
+
+    function isEncoder() {
+      return isAuthenticated() && (getUserRole() == 'ENCODER' || getUserRole() == 'SUPERVISOR' || getUserRole() == 'ADMIN');
+    }
+
+    // USER PROFILES
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Allow users to bootstrap their own profiles for demo purposes, or admins to write any
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+    }
+
+    // INCIDENTS COLLECTION
+    match /incidents/{incidentId} {
+      allow read: if isAuthenticated();
+      
+      // Encoders can create draft or pending incidents
+      allow create: if isEncoder() 
+        && request.resource.data.status in ['DRAFT', 'PENDING_REVIEW']
+        && request.resource.data.encodedBy.uid == request.auth.uid;
+      
+      // Only Supervisors and Admins can verify or reject
+      allow update: if isSupervisor() 
+        || (isEncoder() && resource.data.status == 'DRAFT' && request.resource.data.status in ['DRAFT', 'PENDING_REVIEW']);
+        
+      allow delete: if isAdmin();
+    }
+
+    // SITREPS COLLECTION
+    match /sitreps/{sitrepId} {
+      allow read: if isAuthenticated();
+      allow create: if isEncoder();
+      allow update: if isSupervisor();
+      allow delete: if isAdmin();
+    }
+
+    // RESOURCES COLLECTION
+    match /resources/{resourceId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isEncoder();
+      allow delete: if isAdmin();
+    }
+
+    // ALERTS & ADVISORIES
+    match /alerts/{alertId} {
+      allow read: if isAuthenticated();
+      allow write: if isSupervisor();
+    }
+
+    // AUDIT LOGS (Append-only by server or authenticated actors)
+    match /audit_logs/{logId} {
+      allow read: if isSupervisor();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+  }
+}
